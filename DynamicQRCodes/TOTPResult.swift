@@ -1,8 +1,8 @@
 import Foundation
 
-struct TOTPResult {
-    let previous:      String
-    let current:       String
-    let next:          String
+struct TOTPResult: Equatable, Sendable {
+    let previous: String
+    let current: String
+    let next: String
     let remainingTime: UInt64
 }

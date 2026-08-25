@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Mint
+        run: brew install mint
+
+      - name: Generate Xcode project
+        run: |
+          mint bootstrap
+          mint run xcodegen generate
+
+      - name: Run unit tests
+        run: |
+          xcodebuild \
+            -project DynamicQRCodes.xcodeproj \
+            -scheme DynamicQRCodes \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=latest' \
+            test
+
+      - name: Build release for iOS
+        run: |
+          xcodebuild \
+            -project DynamicQRCodes.xcodeproj \
+            -scheme DynamicQRCodes \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build

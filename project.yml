@@ -4,7 +4,7 @@ options:
   bundleIdPrefix: cloud.charging.open
   deploymentTarget:
     iOS: "17.0"
-  xcodeVersion: "16.0"
+  xcodeVersion: "26.0"
 
 targets:
   DynamicQRCodes:
@@ -18,9 +18,38 @@ targets:
         MARKETING_VERSION: "1.2"
         CURRENT_PROJECT_VERSION: 3
         SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_NSCameraUsageDescription: "Camera access is required to scan QR codes"
+        INFOPLIST_KEY_NSCameraUsageDescription: "DynamicQRCodes uses the camera only to scan and validate secure charging QR codes."
         INFOPLIST_KEY_CFBundleDisplayName: "DynamicQRCodes"
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+
+  DynamicQRCodesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - DynamicQRCodesTests
+    dependencies:
+      - target: DynamicQRCodes
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cloud.charging.open.dynamicqrcodes.tests
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  DynamicQRCodes:
+    build:
+      targets:
+        DynamicQRCodes: all
+        DynamicQRCodesTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - DynamicQRCodesTests

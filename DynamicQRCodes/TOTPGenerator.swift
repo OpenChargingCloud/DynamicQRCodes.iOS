@@ -1,12 +1,14 @@
 import Foundation
 import CryptoKit
 
-enum TOTPError: LocalizedError {
+enum TOTPError: LocalizedError, Equatable {
 
     case emptySecret
     case secretContainsWhitespace
     case secretTooShort
+    case invalidValidityTime
     case invalidTOTPLength
+    case negativeTimestamp
     case emptyAlphabet
     case alphabetTooShort
     case duplicateAlphabetChars
@@ -17,7 +19,9 @@ enum TOTPError: LocalizedError {
         case .emptySecret:                return "The shared secret must not be empty!"
         case .secretContainsWhitespace:   return "The shared secret must not contain whitespace!"
         case .secretTooShort:             return "The shared secret must be at least 16 characters!"
+        case .invalidValidityTime:        return "The validity time must be a positive number of seconds!"
         case .invalidTOTPLength:          return "The TOTP length must be between 4 and 255!"
+        case .negativeTimestamp:          return "The timestamp must be a non-negative Unix timestamp in milliseconds!"
         case .emptyAlphabet:              return "The alphabet must not be empty!"
         case .alphabetTooShort:           return "The alphabet must contain at least 4 characters!"
         case .duplicateAlphabetChars:     return "The alphabet must not contain duplicate characters!"
@@ -27,11 +31,26 @@ enum TOTPError: LocalizedError {
 
 }
 
+enum TOTPValidation: String, Equatable, Sendable {
+    case previous
+    case current
+    case next
+    case invalid
+
+    var isValid: Bool { self != .invalid }
+}
+
 struct TOTPGenerator {
 
     static func generateRandomSecret(length: Int = 16) -> String {
-        let allowedChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_+!$%&/()=?@#*"
-        return String((0..<length).map { _ in allowedChars.randomElement()! })
+        guard length > 0 else { return "" }
+
+        let allowedCharacters = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_+!$%&/()=?@#*")
+        var generator = SystemRandomNumberGenerator()
+
+        return String((0..<length).map { _ in
+            allowedCharacters[Int.random(in: allowedCharacters.indices, using: &generator)]
+        })
     }
 
     static func generate(
@@ -55,8 +74,14 @@ struct TOTPGenerator {
         guard secret.count >= 16 else {
             throw TOTPError.secretTooShort
         }
+        guard validityTime > 0 else {
+            throw TOTPError.invalidValidityTime
+        }
         guard totpLength >= 4 && totpLength <= 255 else {
             throw TOTPError.invalidTOTPLength
+        }
+        if let timestamp, timestamp < 0 {
+            throw TOTPError.negativeTimestamp
         }
         guard !alphabetTrimmed.isEmpty else {
             throw TOTPError.emptyAlphabet
@@ -91,10 +116,12 @@ struct TOTPGenerator {
                                     alphabet: alphabetTrimmed,
                                     sharedSecret: secret)
 
-        return TOTPResult(previous:      previous,
-                          current:       current,
-                          next:          next,
-                          remainingTime: remainingTime)
+        return TOTPResult(
+            previous: previous,
+            current: current,
+            next: next,
+            remainingTime: remainingTime
+        )
 
     }
 
@@ -107,13 +134,10 @@ struct TOTPGenerator {
         sharedSecret: String
     ) -> String {
 
-        // Convert slot to 8-byte array in native byte order.
-        // Android: ByteBuffer.allocate(8).putLong(slot) produces big-endian,
-        //          then reverseBytes() on little-endian systems -> native endian.
-        // Swift:   withUnsafeBytes(of:) directly gives native endian.
-        // Both ARM Android and ARM iOS are little-endian, so results match.
-        var slotValue = slot
-        let slotData  = Data(bytes: &slotValue, count: 8)
+        // OCPP 2.1 C25 TOTP algorithm version 1 hashes the time interval as
+        // an eight-byte, big-endian signed integer on every architecture.
+        var slotValue = slot.bigEndian
+        let slotData = withUnsafeBytes(of: &slotValue) { Data($0) }
 
         // HMAC-SHA256
         let key  = SymmetricKey(data: Data(sharedSecret.utf8))
@@ -133,6 +157,43 @@ struct TOTPGenerator {
 
         return result
 
+    }
+
+    static func validate(
+        _ totp: String,
+        sharedSecret: String,
+        validityTime: UInt32 = 30,
+        totpLength: UInt32 = 12,
+        alphabet: String = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        timestamp: Int64? = nil
+    ) throws -> TOTPValidation {
+        let expected = try generate(
+            sharedSecret: sharedSecret,
+            validityTime: validityTime,
+            totpLength: totpLength,
+            alphabet: alphabet,
+            timestamp: timestamp
+        )
+
+        if timingSafeEqual(totp, expected.current) { return .current }
+        if timingSafeEqual(totp, expected.previous) { return .previous }
+        if timingSafeEqual(totp, expected.next) { return .next }
+        return .invalid
+    }
+
+    private static func timingSafeEqual(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsBytes = Array(lhs.utf8)
+        let rhsBytes = Array(rhs.utf8)
+        let comparedCount = max(lhsBytes.count, rhsBytes.count)
+        var difference = lhsBytes.count ^ rhsBytes.count
+
+        for index in 0..<comparedCount {
+            let lhsByte = index < lhsBytes.count ? lhsBytes[index] : 0
+            let rhsByte = index < rhsBytes.count ? rhsBytes[index] : 0
+            difference |= Int(lhsByte ^ rhsByte)
+        }
+
+        return difference == 0
     }
 
 }
