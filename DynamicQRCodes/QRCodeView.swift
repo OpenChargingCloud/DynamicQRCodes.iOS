@@ -24,12 +24,24 @@ struct QRCodeView: View {
         .accessibilityElement()
         .accessibilityLabel("QR code for the generated secure URL")
         .task(id: value) {
-            image = QRCodeRenderer.image(for: value)
+            // Avoid blocking text-field focus and input while the form changes.
+            // A short debounce also prevents rendering intermediate values while typing.
+            do {
+                try await Task.sleep(for: .milliseconds(120))
+            } catch {
+                return
+            }
+
+            let renderedImage = await Task.detached(priority: .userInitiated) {
+                QRCodeRenderer.image(for: value)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            image = renderedImage
         }
     }
 }
 
-@MainActor
 private enum QRCodeRenderer {
     private static let context = CIContext(options: [.useSoftwareRenderer: false])
 

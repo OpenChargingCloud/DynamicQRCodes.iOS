@@ -95,6 +95,8 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
 
     private let sessionController = CaptureSessionController()
     private var previewLayer: AVCaptureVideoPreviewLayer?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var rotationObservation: NSKeyValueObservation?
     private var hasFinished = false
 
     override func viewDidLoad() {
@@ -207,18 +209,30 @@ final class QRScannerViewController: UIViewController, AVCaptureMetadataOutputOb
         view.layer.insertSublayer(previewLayer, at: 0)
         self.previewLayer = previewLayer
 
+        let rotationCoordinator = AVCaptureDevice.RotationCoordinator(
+            device: device,
+            previewLayer: previewLayer
+        )
+        self.rotationCoordinator = rotationCoordinator
+        rotationObservation = rotationCoordinator.observe(
+            \.videoRotationAngleForHorizonLevelPreview,
+            options: [.initial, .new]
+        ) { [weak self] coordinator, _ in
+            MainActor.assumeIsolated {
+                self?.applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
+            }
+        }
+
         sessionController.start()
     }
 
     private func updatePreviewOrientation() {
-        guard let connection = previewLayer?.connection else { return }
+        guard let rotationCoordinator else { return }
+        applyPreviewRotation(rotationCoordinator.videoRotationAngleForHorizonLevelPreview)
+    }
 
-        let angle: CGFloat = switch view.window?.windowScene?.interfaceOrientation {
-        case .landscapeLeft: 270
-        case .landscapeRight: 90
-        case .portraitUpsideDown: 180
-        default: 0
-        }
+    private func applyPreviewRotation(_ angle: CGFloat) {
+        guard let connection = previewLayer?.connection else { return }
         if connection.isVideoRotationAngleSupported(angle) {
             connection.videoRotationAngle = angle
         }
